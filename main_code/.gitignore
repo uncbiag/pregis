@@ -1,0 +1,7 @@
+*
+!.gitignore
+!preprocessing.py
+!postprocessing.py
+!main.py
+!pstrip.py
+!README.md
