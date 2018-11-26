@@ -16,7 +16,7 @@ def performInitialization(args):
     configure = {}
     configure['num_of_normal_used'] = 100 # currently fixed number of normal images used. 2D:250;3D:80/100
     configure['num_of_pca_basis'] = 50 # currently fixed number of PCA Basis used. 2D:150;3D:50
-    configure['num_of_iteration'] = 4 # currently fixed number of iteration. manually change
+    configure['num_of_iteration'] = 6 # currently fixed number of iteration. manually change
     configure['num_of_bspline_iteration'] = 3 # currently fixed 3
     
     configure['image_file'] = args.input_image # temp_folder + image_name
