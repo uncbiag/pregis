@@ -17,7 +17,7 @@ def pca_GPU(test_img, mean_brain, Beta, BetaT, _gamma, correction, verbose):
     gc.collect()
     t_end = time.clock()
     t_elapsed = t_end - t_begin
-    print 'Decomposition takes: %f seconds' %t_elapsed
+    print('Decomposition takes: %f seconds' %t_elapsed)
 
     L = D  - T + mean_brain
     return (L, T, alpha)
@@ -47,7 +47,7 @@ def pca_CPU(test_img, mean_brain, atlas_map, Beta, _lambda, _gamma, correction, 
     gc.collect()
     t_end = time.clock()
     t_elapsed = t_end - t_begin
-    print 'Decomposition takes: %f seconds' %t_elapsed
+    print('Decomposition takes: %f seconds' %t_elapsed)
 
     L = D - S - T + mean_brain
     return (L, S, T, alpha)

@@ -57,7 +57,7 @@ def ReadPCABasis(image_size, configure):
     D = np.zeros((image_size, configure['num_of_pca_basis']), dtype=np.float32)
     DT = np.zeros((configure['num_of_pca_basis'], image_size), dtype=np.float32)
     if configure['verbose'] == True:
-        print 'Reading PCA Basis Images'
+        print('Reading PCA Basis Images')
     for i in range(configure['num_of_pca_basis']):
         basis_file = os.path.join(configure['data_folder_basis'], 'eigen_brain_'+str(i+1)+'.nii.gz')
         basis_img = sitk.ReadImage(basis_file)
@@ -105,7 +105,7 @@ def performIteration(configure, D_Basis, D_BasisT, D_mean, image_size):
         current_iter = it + 1
         if current_iter < start_iteration:
             continue
-        print 'run iteration ' + str(current_iter)
+        print('run iteration ' + str(current_iter))
         if current_iter == 1:
             # first iteration, in original space
             performDecomposition(1, current_folder, D_Basis, D_BasisT, D_mean, image_size,configure) 
@@ -175,9 +175,9 @@ def performRegistration(current_iter, current_folder, configure, registration_ty
 
     cmd += '\n' + nifty_reg_resample(ref=atlas_image, flo=initial_input_image, trans=current_comp_def, res=current_input_image)
 
-    print 'performing registration'
+    print('performing registration')
     if configure['verbose'] == True:
-        print cmd
+        print(cmd)
     logFile = open(prefix_cur + '_data.log', 'w')
     process = subprocess.Popen(cmd, shell=True)
     process.wait()

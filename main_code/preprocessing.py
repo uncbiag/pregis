@@ -11,7 +11,7 @@ from operations import *
 from argparse import Namespace
 
 def create_temp_image(image_path, temp_folder):
-    print 'creating temp image'
+    print('creating temp image')
     temp_image_file = temp_folder + '/temp_image.nii.gz'
     # using float32
     temp_image = sitk.Cast(sitk.ReadImage(image_path), sitk.sitkFloat32)
@@ -20,7 +20,7 @@ def create_temp_image(image_path, temp_folder):
 
 def affine_to_atlas(atlas_wo_skull_file, temp_folder, args):
 
-    print 'performing affine registration'
+    print('performing affine registration')
     # input image 
     temp_file = temp_folder + '/temp_image.nii.gz'
     # affine output/trans
@@ -39,7 +39,7 @@ def affine_to_atlas(atlas_wo_skull_file, temp_folder, args):
     cmd += '\n' + nifty_reg_transform(invAff1=affine_trans, invAff2=invaff_trans)
 
     if args.verbose == True:
-        print cmd
+        print(cmd)
     process = subprocess.Popen(cmd, shell=True, stdout=log)
     process.wait()
     log.close()
@@ -49,7 +49,7 @@ def affine_to_atlas(atlas_wo_skull_file, temp_folder, args):
 
 
 def bias_correction(atlas_erode_mask_file, temp_folder):
-    print 'performing bias correction' 
+    print('performing bias correction' )
 
     # input/output file name
     affine_file = temp_folder + '/affine_output.nii.gz'
@@ -65,7 +65,7 @@ def bias_correction(atlas_erode_mask_file, temp_folder):
     del affine_img, bias_img
 
 def intensity_normalization(temp_folder):
-    print 'performing intensity normalization'
+    print('performing intensity normalization')
     
     # input/output file name
     affine_file = temp_folder + '/affine_output.nii.gz'
@@ -93,7 +93,7 @@ def intensity_normalization(temp_folder):
     del affine_img, norm_img_pre, norm_img
    
 def histogram_matching(pca_mean_file, temp_folder):
-    print 'performing histogram matching'
+    print('performing histogram matching')
 
     bias_file = temp_folder + '/temp_image.nii.gz'
     match_file = temp_folder + '/match_output.nii.gz'
