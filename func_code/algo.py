@@ -221,7 +221,7 @@ def ProxFSs(t, _gamma):
 
 
 def decompose(d, beta, betaT, _gamma, verbose):
-    print 'start decomposing'
+    print('start decomposing')
     sk_misc.init()
     D = gpuarray.to_gpu(d)
     Beta = gpuarray.to_gpu(beta)
@@ -257,7 +257,7 @@ def decompose(d, beta, betaT, _gamma, verbose):
     y_t = gpuarray.zeros((3,l,m,n), D.dtype)
 
     EL, ET, E = computeEnergy(D_v, x_t, _gamma, x_a, Beta) 
-    print 'Initial Energy: E = ' + str(E) + ', EL=' + str(EL) + ', ET= ' + str(ET)
+    print('Initial Energy: E = ' + str(E) + ', EL=' + str(EL) + ', ET= ' + str(ET))
     Es = E
     change = 10
     t0 = time.clock()
@@ -279,9 +279,9 @@ def decompose(d, beta, betaT, _gamma, verbose):
         t1 = time.clock() - t0
 
         if np.mod(i+1, 100) == 0:
-            print 'Iter ' + str(i+1) + ': E = ' + str(E) + '; EL=' + str(EL) + ', ET=' + str(ET) + ', avechg = ' + str(change[length-1])
+            print('Iter ' + str(i+1) + ': E = ' + str(E) + '; EL=' + str(EL) + ', ET=' + str(ET) + ', avechg = ' + str(change[length-1]))
         if i>= 100 and np.max(np.abs(change[np.maximum(0,length-3):length])) < tol:
-            print 'Converged after ' + str(i+1) + ' iterations.'
+            print('Converged after ' + str(i+1) + ' iterations.')
             break
     T = x_t
     Alpha = x_a

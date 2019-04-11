@@ -10,14 +10,14 @@ from niftyreg import *
 from decomposition import *
 from operations import *
 from argparse import Namespace
-
+import glob
 
 def performInitialization(args):
     configure = {}
     configure['num_of_normal_used'] = 100 # currently fixed number of normal images used. 2D:250;3D:80/100
     configure['num_of_pca_basis'] = 50 # currently fixed number of PCA Basis used. 2D:150;3D:50
     configure['num_of_iteration'] = 6 # currently fixed number of iteration. manually change
-    configure['num_of_bspline_iteration'] = 3 # currently fixed 3
+    configure['num_of_bspline_iteration'] = 5 # currently fixed 5
     
     configure['image_file'] = args.input_image # temp_folder + image_name
     configure['gamma'] = args.gamma # parameter, usually gamma
@@ -28,22 +28,23 @@ def performInitialization(args):
     configure['debug'] = args.debug
 
     root_folder = os.path.join(sys.path[0], '..')
-    temp_folder = "temp_" + os.path.basename(configure['image_file']).split('.')[0]
-    result_folder = os.path.join(root_folder, 'tmp_res', temp_folder)
+    result_folder = args.output_folder
+    
     data_folder = os.path.join(root_folder, 'data')
     pca_folder = os.path.join(data_folder, 'pca')    
 
-    after_path = args.after_image
-    if after_path is not None:
-        after_file = os.path.basename(after_path)
-        after_name = after_file.split('.')[0]
-        data_folder_basis = os.path.join(pca_folder, 'pca_' + str(after_name))
-        atlas_folder = os.path.join(root_folder , 'tmp_res', 'post','tvmask_gm2','temp_' + str(after_name))
-        atlas_im_name = os.path.join(atlas_folder, 'temp_image_lowrank.nii.gz')
+    if args.post_folder is not None:
+        post_image = args.post_image
+        post_folder = args.post_folder
+        post_file = os.path.basename(post_image)
+        post_name = post_file.split('.')[0]
+        data_folder_basis = pca_folder + '/pca_' + str(post_name)
+        atlas_im_name = post_folder + '/temp_image_lowrank.nii.gz'
     else:
-        data_folder_basis = os.path.join(pca_folder, 'pca_regular')
+        data_folder_basis = pca_folder + '/pca_regular'
         atlas_folder = os.path.join(data_folder, 'atlas')
-        atlas_im_name = os.path.join(atlas_folder, 'atlas_wo_skull.nii') 
+ 
+        atlas_im_name = atlas_folder + '/atlas_wo_skull.nii'
 
     configure['result_folder'] = result_folder
     configure['data_folder_basis'] = data_folder_basis
@@ -59,12 +60,12 @@ def ReadPCABasis(image_size, configure):
     if configure['verbose'] == True:
         print('Reading PCA Basis Images')
     for i in range(configure['num_of_pca_basis']):
-        basis_file = os.path.join(configure['data_folder_basis'], 'eigen_brain_'+str(i+1)+'.nii.gz')
+        basis_file = configure['data_folder_basis'] + '/eigen_brain_' + str(i+1) + '.nii.gz'
         basis_img = sitk.ReadImage(basis_file)
         basis_img_arr = sitk.GetArrayFromImage(basis_img)
         D[:,i] = basis_img_arr.reshape(-1)
         DT[i,:] = basis_img_arr.reshape(-1)
-    mean_img_file = os.path.join(configure['data_folder_basis'], 'mean_brain_'+str(configure['num_of_normal_used'])+'.nii')
+    mean_img_file = configure['data_folder_basis'] + '/mean_brain_'+str(configure['num_of_normal_used'])+'.nii.gz'
     D_mean = sitk.GetArrayFromImage(sitk.ReadImage(mean_img_file)).astype(np.float32)
     return D, DT, D_mean
 
@@ -96,8 +97,8 @@ def performIteration(configure, D_Basis, D_BasisT, D_mean, image_size):
     current_folder = configure['result_folder']
     start_iteration = configure['start_iteration']
     
-    inputIm = os.path.join(configure['result_folder'], 'match_output.nii.gz')
-    outputIm = os.path.join(current_folder, 'Iter1'+'_Input.nii.gz')
+    inputIm = configure['result_folder'] + '/match_output.nii.gz'
+    outputIm = current_folder + '/Iter1' + '_Input.nii.gz'
     
     os.system('cp ' + inputIm + ' ' + outputIm)
      
@@ -110,76 +111,157 @@ def performIteration(configure, D_Basis, D_BasisT, D_mean, image_size):
             # first iteration, in original space
             performDecomposition(1, current_folder, D_Basis, D_BasisT, D_mean, image_size,configure) 
         else:
-            performRegistration(current_iter, current_folder, configure, registration_type = 'bspline')
-            performDecomposition(current_iter, current_folder, D_Basis, D_BasisT, D_mean, image_size, configure)
+            if configure['num_of_iteration'] - current_iter > configure['num_of_bspline_iteration'] - 1:
+                # only perform affine registration
+                performRegistration(current_iter, current_folder, configure, registration_type = 'affine')
+                performDecomposition(current_iter, current_folder, D_Basis, D_BasisT, D_mean, image_size, configure)
+            else:
+                performRegistration(current_iter, current_folder, configure, registration_type = 'bspline')
+                performDecomposition(current_iter, current_folder, D_Basis, D_BasisT, D_mean, image_size, configure)
+                #performInverse(current_iter, current_folder, configure)
             InverseToIterFirst(current_iter, current_folder, configure)   
+    createCompDisp(current_folder, configure) 
+    if configure['debug'] != 2:
+        clearUncessaryFiles(current_folder, configure)
  
     return
+
+def createCompDisp(current_folder, configure):
+    atlas_im_name = configure['atlas_im_name']
+    
+    current_comp_disp = current_folder + '/Iter6_DVF_61.nii'
+    temp_image = current_folder + '/temp_image.nii.gz'
+    affine_txt = current_folder + '/affine_trans.txt'
+    affine_def = current_folder + '/affine_DEF.nii'
+    affine_disp = current_folder + '/affine_DVF.nii'
+    final_disp = current_folder + '/final_DVF.nii'
+    final_inv_disp = current_folder + '/final_inv_DVF.nii'
+
+    final_lowrank_img = current_folder + '/temp_image_lowrank.nii.gz' 
+    final_iter_lowrank = current_folder + '/Iter'+str(configure['num_of_iteration']) + '_LowRank.nii.gz'
+
+    cmd = ""
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name,def1=affine_txt, def2=affine_def)
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name,disp1=affine_def, disp2=affine_disp)
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name, ref2=atlas_im_name, comp1=current_comp_disp, comp2=affine_disp, comp3=final_disp)
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name, invNrr1=final_disp, invNrr2=temp_image, invNrr3=final_inv_disp)
+    cmd += '\n' + nifty_reg_resample(ref=temp_image, flo=final_iter_lowrank, trans=final_inv_disp, res=final_lowrank_img)
+
+    logFile = open(current_folder + '/final.log', 'w')
+    process = subprocess.Popen(cmd, stdout= logFile, shell = True)
+    process.wait()
+    logFile.close()
+
+
+
+def clearUncessaryFiles(current_folder, configure):
+    final_inv_disp = 'final_inv_DVF.nii'
+    final_lowrank = 'temp_image_lowrank.nii.gz'
+    files_to_keep = [final_inv_disp, final_lowrank]
+    files = glob.glob(os.path.join(current_folder, '*'))
+    for f in files:
+        f_name = os.path.basename(f)
+        if f_name in files_to_keep:
+            continue
+        #print("Clear File {}".format(f_name))
+        os.system('rm '+f) 
+ 
+
+
+
+def performInverse(current_iter, current_folder, configure):
+    prefix = current_folder + '/Iter' + str(current_iter)
+    atlas_im_name = configure['atlas_im_name']
+    invWarpedLowRankIm = prefix + '_InvWarpedLowRank.nii.gz'
+    lowRankIm = prefix + '_LowRank.nii.gz'
+ 
+    tvIm = prefix + '_TV.nii.gz'
+    invTV 
+    
+    cmd = ""
+    current_disp = prefix + '_DVF_'+str(current_iter)+'1.nii'
+    current_inv_disp =  prefix + '_InvDVF_' + str(current_iter) + '1.nii'
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name, invNrr1=current_disp, invNrr2=lowRankIm , invNrr3=current_inv_disp)
+    cmd += '\n' + nifty_reg_resample(ref=atlas_im_name, flo=lowRankIm, trans=current_inv_disp, res=invWarpedLowRankIm)
+       
+    if configure['verbose'] == True:
+        print('Non-greedy strategy, inversing to original space')
+        print(cmd)
+    logFile = open(prefix + '_data2.log', 'w')
+    process = subprocess.Popen(cmd, stdout= logFile, shell = True)
+    process.wait()
+    logFile.close()
 
 
 def InverseToIterFirst(current_iter, current_folder, configure):
     prefix = current_folder + '/Iter' + str(current_iter)
-    atlas_image = configure['atlas_im_name']
-    initial_input_image = os.path.join(current_folder, 'Iter1_Input.nii.gz')
-    initial_input_image = current_folder + '/Iter1_Input.nii.gz'
+    inverse_disp = prefix + '_inverseDVF_1'+str(current_iter) + '.nii'
 
-    current_comp_def = prefix + '_def_' + str(current_iter) + '1.nii'
-    current_comp_inv_def = prefix + '_inv_def_1' + str(current_iter) + '.nii'
-    current_comp_inv_disp = prefix + '_inv_disp_1' + str(current_iter) + '.nii'
-
-    lowrank_image = prefix + '_LowRank.nii.gz'
-    tv_image = prefix + '_TV.nii.gz'
-    inv_lowrank_image = prefix + '_InvLowRank.nii.gz'
-    inv_tv_image = prefix + '_InvTV.nii.gz'
- 
+    lowRankIm = prefix + '_LowRank.nii.gz'
+    totalIm = prefix + '_TV.nii.gz'
+    
+    invLowRankIm = prefix + '_InvWarpedLowRank.nii.gz'
+    invTotalIm = prefix + '_InvTV.nii.gz'
+    invTVMaskIm = prefix + '_InvTVMask.nii.gz'
+    
     cmd = ""
-    cmd += '\n' + nifty_reg_transform(ref=atlas_image, invNrr1=current_comp_def, invNrr2=initial_input_image , invNrr3=current_comp_inv_def)
-    cmd += '\n' + nifty_reg_transform(ref=initial_input_image, disp1=current_comp_inv_def, disp2=current_comp_inv_disp)
-    cmd += '\n' + nifty_reg_resample(ref=atlas_image, flo=lowrank_image, trans = current_comp_inv_def, res=inv_lowrank_image )
-    cmd += '\n' + nifty_reg_resample(ref=atlas_image, flo=tv_image, trans=current_comp_inv_def, res=inv_tv_image)
+    cmd += '\n' + nifty_reg_resample(ref=configure['atlas_im_name'], flo=lowRankIm, trans = inverse_disp, res=invLowRankIm)
+    cmd += '\n' + nifty_reg_resample(ref=configure['atlas_im_name'], flo=totalIm, trans = inverse_disp, res=invTotalIm)
  
-    logFile = open(prefix+ '_inverse' + '_data.log', 'w')
-    process = subprocess.Popen(cmd, shell=True)
+    logFile = open(prefix+ '_inverse_final_image' + '_data.log', 'w')
+    process = subprocess.Popen(cmd, stdout= logFile, shell = True)
     process.wait()
     logFile.close()
+    createTVMask(invTotalIm, invTVMaskIm)
 
     return 
  
  
 def performRegistration(current_iter, current_folder, configure, registration_type = 'bspline'):
-
-    atlas_image = configure['atlas_im_name']
-    prefix_cur = current_folder + '/Iter' + str(current_iter) 
-    prefix_pre = current_folder + '/Iter' + str(current_iter-1)
-
-    current_input_image = prefix_cur + '_Input.nii.gz'
-    initial_input_image= current_folder + '/Iter1_Input.nii.gz'
+    atlas_im_name = configure['atlas_im_name']
+    prefix = current_folder + '/' + 'Iter' + str(current_iter) 
+    new_input_image = prefix + '_Input.nii.gz'
+    current_input_image = current_folder + '/Iter' + str(current_iter-1) + '_Input.nii.gz'
+    initial_input_image= current_folder+'/Iter1_Input' + '.nii.gz'
     tmp_out = current_folder + '/tmp_out.nii'
-    pre_lowrank = prefix_pre + '_LowRank.nii.gz'
-    current_cpp = prefix_cur + '_cpp_' + str(current_iter) + str(current_iter-1) + '.nii'
-    current_def = prefix_cur + '_def_' + str(current_iter) + str(current_iter-1) + '.nii'
-    pre_warped_lowrank = prefix_pre + '_warped_lowrank.nii.gz'
-    if current_iter == 2:
-        flo_mask = prefix_pre + '_TV.nii.gz' 
-        current_comp_def = current_def
-    else:
-        flo_mask = False
-        previous_comp_def = prefix_pre + '_def_' + str(current_iter-1) + '1.nii'
-        current_comp_def = prefix_cur + '_def_' + str(current_iter) + '1.nii'
-    cmd = ""
-    cmd += '\n' + nifty_reg_bspline(ref=atlas_image, flo=pre_lowrank, cpp=current_cpp, res=pre_warped_lowrank, fmask=flo_mask)
-    cmd += '\n' + nifty_reg_transform(ref=atlas_image, def1=current_cpp, def2=current_def)
     
-    if current_iter > 2:
-        cmd += '\n' + nifty_reg_transform(ref=atlas_image, ref2=atlas_image, comp1=current_def, comp2=previous_comp_def, comp3=current_comp_def) # composite
+    fmaskIm = False
+    if configure['num_of_iteration'] - current_iter > configure['num_of_bspline_iteration'] - 2:
+        movingIm = current_folder + '/Iter' + str(current_iter-1) + '_LowRank.nii.gz'
+        fmaskIm = current_folder + '/Iter' + str(current_iter-1) + '_TVmask.nii.gz'
+        current_def = prefix + '_DEF_'+str(current_iter)+str(current_iter-1)+'.nii'
+        current_disp = prefix + '_DVF_'+str(current_iter)+str(current_iter-1)+'.nii'
+    else:
+        movingIm = current_folder + '/Iter' + str(current_iter-1) + '_InvWarpedLowRank.nii.gz'
 
-    cmd += '\n' + nifty_reg_resample(ref=atlas_image, flo=initial_input_image, trans=current_comp_def, res=current_input_image)
+        #fmaskIm = current_folder + '/Iter' + str(current_iter-1) + '_InvTVMask.nii.gz'
 
+        current_def = prefix + '_DEF_'+str(current_iter)+'1.nii'
+        current_disp = prefix + '_DVF_'+str(current_iter)+'1.nii'
+    cmd  = ""
+    if registration_type == 'affine':
+        outputTransform = prefix + '_Transform.txt' 
+        cmd += '\n' + nifty_reg_affine(ref=atlas_im_name, flo=movingIm, aff=outputTransform, symmetric=False, res=tmp_out, fmask=fmaskIm)
+    else:
+        outputTransform = prefix + '_Transform.nii'
+        cmd += '\n' + nifty_reg_bspline(ref=atlas_im_name, flo=movingIm, cpp=outputTransform, res=tmp_out, fmask = fmaskIm)
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name,def1=outputTransform, def2=current_def)
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name,disp1=current_def, disp2=current_disp)
+
+
+    current_comp_def = current_def
+    current_comp_disp = current_disp
+
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name,disp1=current_comp_def,disp2=current_comp_disp)
+
+    inverse_disp = prefix + '_inverseDVF_1'+str(current_iter)+'.nii'
+    cmd += '\n' + nifty_reg_transform(ref=atlas_im_name, invNrr1=current_comp_disp, invNrr2=initial_input_image, invNrr3=inverse_disp)
+    cmd += '\n' + nifty_reg_resample(ref=atlas_im_name,flo=initial_input_image,trans=current_comp_def,res=new_input_image)
     print('performing registration')
     if configure['verbose'] == True:
         print(cmd)
-    logFile = open(prefix_cur + '_data.log', 'w')
-    process = subprocess.Popen(cmd, shell=True)
+    logFile = open(prefix + '_data.log', 'w')
+    process = subprocess.Popen(cmd, stdout= logFile, shell = True)
     process.wait()
     logFile.close()
     return 
@@ -197,11 +279,11 @@ def performDecomposition(current_iter, current_folder, Beta, BetaT, D_mean, imag
     
     input_name = current_folder + '/' + 'Iter' + str(current_iter) + '_Input.nii.gz'
     D = sitk.GetArrayFromImage(sitk.ReadImage(input_name)).astype(np.float32)
-    if current_iter <= 2 and correction != 0:
+    if current_iter <= num_of_iteration-3 and correction != 0:
         if configure['platform'] == 'CPU':
-            L, T, Alpha = pca_CPU(D, D_mean, Beta, _gamma , 0, configure['verbose'])
+            L, T, Alpha = pca_CPU(D, D_mean, Beta, _gamma/2 , 0, configure['verbose'])
         else:
-            L, T, Alpha = pca_GPU(D, D_mean, Beta, BetaT, _gamma, 0, configure['verbose'])
+            L, T, Alpha = pca_GPU(D, D_mean, Beta, BetaT, _gamma/2, 0, configure['verbose'])
     else:
         if configure['platform'] == 'CPU':
             L, T, Alpha = pca_CPU(D, D_mean, Beta, _gamma, correction, configure['verbose'])
@@ -211,13 +293,15 @@ def performDecomposition(current_iter, current_folder, Beta, BetaT, D_mean, imag
 
     l_v = L.reshape(image_size, 1) # quasi low-rank/reconstruction
     t_v = T.reshape(image_size, 1) # total variation term
-    prefix = current_folder + '/Iter' + str(current_iter)
+    prefix = current_folder + '/' + 'Iter' + str(current_iter)
  
     lowRankIm = prefix + '_LowRank.nii.gz'
     totalIm = prefix + '_TV.nii.gz'
     masktvIm = prefix+ '_TVmask.nii.gz'
+
     save_image_from_data_matrix(l_v,atlas_im_name,lowRankIm)
     save_image_from_data_matrix(t_v,atlas_im_name,totalIm)
+
     createTVMask(totalIm, masktvIm)
        
 

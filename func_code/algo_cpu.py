@@ -36,117 +36,94 @@ def div(u):
 
     return fx+fy+fz
 
-def computeEnergy(D, S, T, _Lambda, _gamma_c, Alpha, Beta):
-    
+def computeEnergy(D, T, gamma, Alpha, Beta):
+
     l, m, n = D.shape
-    sum_alpha_beta = np.dot(Beta, Alpha);
-  
+    sum_alpha_beta = np.dot(Beta, Alpha)
+
     # \nabla TV term energy  
-    GR = np.linalg.norm(grad(T), axis =0)
-    ET = _gamma_c * GR.sum()
+    GR = np.linalg.norm(grad(T), axis=0)
+    ET = GR.sum()
     # S term energy
-    SP = _Lambda * np.abs(S)
-    ES = SP.sum()
-    # L-Ba
-    sparse = D.reshape(l*m*n, 1) - S.reshape(l*m*n, 1) - T.reshape(l*m*n,1) - sum_alpha_beta
+    sparse = D.reshape(l*m*n, 1) - T.reshape(l*m*n,1) - sum_alpha_beta
     EL = np.square(sparse).sum()
 
-    E = EL/2 + ET + ES
+    E = gamma/2.*EL + ET
 
-    return EL,ES,ET,E 
+    return EL,ET,E
 
-def ProxG(s, t, a, tau, D, Beta):
+def ProxG(t, a, tau, D, Beta):
     l,m,n = D.shape
     lmn = l*m*n
-    dl = (D-s-t).reshape(lmn,1)
+    dl = (D-t).reshape(lmn,1)
     delta = np.dot(np.transpose(Beta), dl)
-    p_v1 = -tau*tau/(1+3*tau)/(1+2*tau) * np.dot(Beta, delta)
-    p_v2 = -tau/(1+3*tau)*np.dot(Beta, a)
-    p_v3 = tau/(1+2*tau)*dl
+    p_v1 = -tau*tau/(1+tau)/(1+2*tau) * np.dot(Beta, delta)
+    p_v2 = -tau/(1+2*tau)*np.dot(Beta, a)
+    p_v3 = tau/(1+tau)*dl
     p = (p_v1 + p_v2 + p_v3).reshape(l,m,n)
-    ps = p + s
     pt = p + t
-    pa = tau/(1+3*tau)*delta + (1+2*tau)/(1+3*tau)*a
+    pa = tau/(1+2*tau)*delta + (1+tau)/(1+2*tau)*a
   
-    return ps, pt, pa
+    return pt, pa
 
-def ProxFS(s, t, _Lambda, _gamma_c):
-    l,m,n = s.shape
-    max_abs_s = np.maximum(1, np.abs(s)/_Lambda)
-    max_abs_t = np.maximum(1, np.linalg.norm(t, axis=0)/_gamma_c)
-    ps = np.divide(s, max_abs_s)
+def ProxFS(t, gamma):
+    _,l,m,n = t.shape
+    max_abs_t = np.maximum(1, np.linalg.norm(t, axis=0)/gamma)
     pt = np.zeros((3,l,m,n), t.dtype)
     pt[0,:,:,:] = np.divide(t[0,:,:,:], max_abs_t)
     pt[1,:,:,:] = np.divide(t[1,:,:,:], max_abs_t) 
     pt[2,:,:,:] = np.divide(t[2,:,:,:], max_abs_t)
 
-    return (ps, pt)
+    return pt
 
-def decompose(D, Beta, _Lambda, _Gamma, _lambda_c, _gamma_c, verbose):
-    print 'start decomposing in CPU'
+def decompose(D, Beta, gamma, verbose):
+    print('start decomposing in CPU')
     l,m, n = D.shape
     _, k = Beta.shape
 
     tol = 0.1
-    max_iter = 10000 
+    max_iter = 10000
 
     tau = 0.1
-    sigma = 1/(13*tau)
+    sigma = 1/(12*tau)
 
-    x_s = np.zeros((l,m,n), D.dtype)
     x_t = np.zeros((l,m,n), D.dtype)
     x_a = np.zeros((k,1), D.dtype)
-    y_s = x_s
     y_t = np.zeros((3,l,m,n), D.dtype)
  
-    _Lambda_out = np.where(_Lambda == 10)
-    _Lambda_in = np.where(_Lambda == 0.001)
-    _Gamma_out = np.where(_Gamma == 10)
 
-   
-    x_s[_Lambda_out] = 0
-    x_s[_Lambda_in] = D[_Lambda_in]
- 
-    EL,ES,ET,Es = computeEnergy(D, x_s, x_t, _Lambda, _gamma_c, x_a, Beta) 
-    print 'Initial Energy: E = ' + str(Es) + ', EL=' + str(EL) + ', ES=' + str(ES) + ', ET=' + str(ET)
+    EL,ET,E = computeEnergy(D, x_t, gamma, x_a, Beta)
+    print('Initial Energy: E = {}, EL={}, ET={}'.format(str(E), str(EL), str(ET)))
+    Es = E
     change = 10
     
-    print_iters = 200
+    print_iters = 1
     if verbose == True:
         print_iters = 50 
     for i in range(max_iter):
-        t_begin = time.clock()
         ks_yt = -div(y_t)
-        ks_ys = y_s
-        xs_new, xt_new, xa_new = ProxG(x_s - tau*ks_ys, x_t - tau*ks_yt, x_a, tau, D, Beta)
+        xt_new, xa_new = ProxG(x_t - tau*ks_yt, x_a, tau, D, Beta)
 
-        xs_new[_Lambda_out] = 0
-        xs_new[_Lambda_in] = D[_Lambda_in]
-        xt_new[_Gamma_out] = 0
-
-        ys_new, yt_new = ProxFS(y_s+sigma*(2*xs_new - x_s), y_t + sigma*grad(2*xt_new - x_t), _Lambda, _Gamma)
+        yt_new = ProxFS(y_t + sigma*grad(2*xt_new - x_t), gamma)
        
-        x_s = xs_new
         x_t = xt_new
         x_a = xa_new
-        y_s = ys_new
         y_t = yt_new
         
-        EL,ES,ET,E = computeEnergy(D, x_s, x_t, _Lambda, _gamma_c, x_a, Beta)
+        EL,ET,E = computeEnergy(D, x_t, gamma, x_a, Beta)
         Es = np.append(Es, E)
         length = Es.shape[0]
         El5 = np.mean(Es[np.maximum(0,length-6):length-1])
         El5c = np.mean(Es[np.maximum(0,length-5):length])
         change = np.append(change, El5c - El5);
         if np.mod(i+1, print_iters) == 0:
-            print 'Iter ' + str(i+1) + ': E = ' + str(E) + '; EL=' + str(EL) + ', ES=' + str(ES) + ', ET=' + str(ET) + ', aechg = ' + str(change[length-1]) 
+            print("Iter {}: E={}, EL={}, ET={}, avgchg={}".format(str(i+1), str(E), str(EL), str(ET), str(change[length-1])))
         if i >= 100 and np.max(np.abs(change[np.maximum(0, length-3):length])) < tol:
-            print 'Iter ' + str(i+1) + ': E = ' + str(E) + '; EL=' + str(EL) + ', ES=' + str(ES) + ', ET=' + str(ET) + ', aechg = ' + str(change[length-1]) 
-            print 'Converged after ' + str(i+1) + ' iterations.'
+            print("Iter {}: E={}, EL={}, ET={}, avgchg={}".format(str(i+1), str(E), str(EL), str(ET), str(change[length-1])))
+            print('Converged after ' + str(i+1) + ' iterations.')
             break
-    S = x_s
     T = x_t
     Alpha = x_a
-    L = D-S-T
-    return (L, S, T, Alpha)
+    L = D-T
+    return (L, T, Alpha)
 
